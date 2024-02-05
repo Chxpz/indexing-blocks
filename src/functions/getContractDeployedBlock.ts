@@ -26,35 +26,44 @@ async function findDeploymentBlock({
   providerUrl,
   ethers,
 }: FindDeploymentBlockParams) {
-  console.log("contractAddress", contractAddress);
   let startBlock = 0;
   const provider = new ethers.providers.JsonRpcProvider(providerUrl);
   let endBlock = await provider.getBlockNumber();
 
-  while (startBlock <= endBlock) {
-    const midBlock = Math.floor((startBlock + endBlock) / 2);
-
-    const block = await provider.getBlockWithTransactions(midBlock);
-
+  for (let i = endBlock; i > startBlock; i--) {
+    console.log("Checking block", i);
+    const block = await provider.getBlockWithTransactions(i);
     const contractCreationTx = block.transactions.find(
       (tx: any) =>
         tx.to === null &&
         ethers.utils.getAddress(tx.creates) === contractAddress
     );
+
     if (contractCreationTx) {
-      const prevBlock = await provider.getBlockWithTransactions(midBlock - 1);
-      const existedInPrevBlock = prevBlock.transactions.some(
-        (tx: any) =>
-          tx.to === null &&
-          ethers.utils.getAddress(tx.creates) === contractAddress
+      const existedInPrevBlock = await checkInPreviousBlock(
+        provider,
+        contractAddress,
+        i - 1,
+        ethers
       );
+
       if (!existedInPrevBlock) {
-        return midBlock;
+        return i;
       }
-      endBlock = midBlock - 1;
-    } else {
-      startBlock = midBlock + 1;
     }
   }
   return -1;
 }
+
+const checkInPreviousBlock = async (
+  provider: any,
+  contractAddress: string,
+  blockNumber: number,
+  ethers: any
+) => {
+  const block = await provider.getBlockWithTransactions(blockNumber);
+  return block.transactions.some(
+    (tx: any) =>
+      tx.to === null && ethers.utils.getAddress(tx.creates) === contractAddress
+  );
+};
