@@ -1,3 +1,5 @@
+import { ethers } from "ethers";
+
 interface GetBlockParams {
   contractAddress: string;
   providerUrl: string;
@@ -6,15 +8,13 @@ interface GetBlockParams {
 interface FindDeploymentBlockParams {
   contractAddress: string;
   providerUrl: string;
-  ethers: any;
 }
 
-export const getContractDeployed = async (ethers: any) => {
+export const getContractDeployed = async () => {
   return async ({ contractAddress, providerUrl }: GetBlockParams) => {
     const result = await findDeploymentBlock({
       contractAddress,
       providerUrl,
-      ethers,
     });
 
     console.log(result);
@@ -24,46 +24,75 @@ export const getContractDeployed = async (ethers: any) => {
 async function findDeploymentBlock({
   contractAddress,
   providerUrl,
-  ethers,
 }: FindDeploymentBlockParams) {
-  let startBlock = 0;
-  const provider = new ethers.providers.JsonRpcProvider(providerUrl);
+  const provider = new ethers.JsonRpcProvider(providerUrl);
   let endBlock = await provider.getBlockNumber();
+  let startBlock = 0;
 
-  for (let i = endBlock; i > startBlock; i--) {
-    console.log("Checking block", i);
-    const block = await provider.getBlockWithTransactions(i);
-    const contractCreationTx = block.transactions.find(
-      (tx: any) =>
-        tx.to === null &&
-        ethers.utils.getAddress(tx.creates) === contractAddress
-    );
+  const deploymentBlock = await findMe(
+    contractAddress,
+    startBlock,
+    endBlock,
+    provider
+  );
 
-    if (contractCreationTx) {
-      const existedInPrevBlock = await checkInPreviousBlock(
-        provider,
-        contractAddress,
-        i - 1,
-        ethers
-      );
+  return deploymentBlock;
+}
 
-      if (!existedInPrevBlock) {
-        return i;
+async function findMe(
+  contractAddress: string,
+  startBlock: number,
+  endBlock: number,
+  provider: ethers.JsonRpcProvider
+): Promise<string> {
+  console.log("Searching");
+  if (startBlock > endBlock) {
+    return "Contract deployment block not found";
+  }
+
+  const midBlock = Math.floor((startBlock + endBlock) / 2);
+  const block = await provider.getBlock(midBlock, true);
+
+  if (!block) {
+    return "No Block found at mid position";
+  }
+
+  let found = false;
+
+  if (block.transactions.length > 0) {
+    for (let txHash of block.transactions) {
+      const r = await provider.getTransaction(txHash);
+
+      if (!r) {
+        return "No transaction found";
+      }
+
+      const receipt = await provider.getTransactionReceipt(r.hash);
+      if (
+        receipt &&
+        receipt.contractAddress &&
+        receipt.to === null &&
+        ethers.getAddress(receipt.contractAddress) ===
+          ethers.getAddress(contractAddress)
+      ) {
+        found = true;
+        break;
       }
     }
   }
-  return -1;
-}
 
-const checkInPreviousBlock = async (
-  provider: any,
-  contractAddress: string,
-  blockNumber: number,
-  ethers: any
-) => {
-  const block = await provider.getBlockWithTransactions(blockNumber);
-  return block.transactions.some(
-    (tx: any) =>
-      tx.to === null && ethers.utils.getAddress(tx.creates) === contractAddress
-  );
-};
+  if (found) {
+    return `Contract deployed in block ${midBlock}`;
+  } else {
+    const resultFromSecondHalf: any = await findMe(
+      contractAddress,
+      midBlock + 1,
+      endBlock,
+      provider
+    );
+    if (resultFromSecondHalf !== "Contract deployment block not found") {
+      return resultFromSecondHalf;
+    }
+    return findMe(contractAddress, startBlock, midBlock - 1, provider);
+  }
+}

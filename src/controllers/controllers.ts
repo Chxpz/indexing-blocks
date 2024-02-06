@@ -16,7 +16,7 @@ export const getContractBlockNumber = async (req: Request, res: Response) => {
     }
 
     await (
-      await getContractDeployed(ethers)
+      await getContractDeployed()
     )({ contractAddress, providerUrl });
     res.send("Ok");
   } catch (e: any) {
